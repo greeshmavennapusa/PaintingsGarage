@@ -18,10 +18,12 @@ import java.util.Map;
 
 public final class JacocoToJson {
 
+  private static final String SOURCE_ROOT = "src/main/java";
+
   public static void main(String[] args) throws Exception {
     String test = Args.required(args, "--test");
     Path out = Path.of(Args.required(args, "--out"));
-    File classes = new File(Args.required(args, "--classes"));
+    File classesDir = new File(Args.required(args, "--classes"));
     String host = Args.optional(args, "--host", "localhost");
     int port = Integer.parseInt(Args.optional(args, "--port", "6300"));
     boolean reset = Boolean.parseBoolean(Args.optional(args, "--reset", "true"));
@@ -33,27 +35,24 @@ public final class JacocoToJson {
 
     CoverageBuilder builder = new CoverageBuilder();
     Analyzer analyzer = new Analyzer(loader.getExecutionDataStore(), builder);
-    analyzer.analyzeAll(classes);
+    analyzer.analyzeAll(classesDir);
 
-    Map<String, Object> files = new LinkedHashMap<>();
+    Map<String, List<String>> sourceCache = new LinkedHashMap<>();
+    Map<String, FileCov> byPath = new LinkedHashMap<>();
     int lineCovered = 0;
     int lineMissed = 0;
     int branchCovered = 0;
     int branchMissed = 0;
 
     for (IClassCoverage cls : builder.getClasses()) {
-      String source = cls.getSourceFileName();
-      if (source == null) {
+      String sourceFile = cls.getSourceFileName();
+      if (sourceFile == null) {
         continue;
       }
-      String path = "src/main/java/" + cls.getPackageName().replace('.', '/') + "/" + source;
 
-      Map<String, Object> s = new LinkedHashMap<>();
-      Map<String, Object> f = new LinkedHashMap<>();
-      Map<String, Object> b = new LinkedHashMap<>();
-      int sId = 0;
-      int fId = 0;
-      int bId = 0;
+      String path = SOURCE_ROOT + "/" + cls.getPackageName().replace('.', '/') + "/" + sourceFile;
+      FileCov file = byPath.computeIfAbsent(path, FileCov::new);
+      List<String> sourceLines = sourceCache.computeIfAbsent(path, JacocoToJson::readSource);
 
       if (cls.getFirstLine() != -1) {
         for (int nr = cls.getFirstLine(); nr <= cls.getLastLine(); nr++) {
@@ -63,55 +62,70 @@ public final class JacocoToJson {
           if (coveredIns == 0 && missedIns == 0) {
             continue;
           }
+
+          int endCol = columnEnd(sourceLines, nr);
+          String sid = String.valueOf(file.s.size());
+          file.statementMap.put(sid, span(nr, 0, nr, endCol));
+          file.s.put(sid, coveredIns);
           if (coveredIns > 0) {
-            s.put(String.valueOf(sId++), 1);
             lineCovered++;
           } else {
             lineMissed++;
           }
 
-          ICounter br = line.getBranchCounter();
-          if (br.getCoveredCount() > 0) {
-            List<Integer> pair = new ArrayList<>();
-            pair.add(br.getCoveredCount());
-            pair.add(br.getMissedCount());
-            b.put(String.valueOf(bId++), pair);
+          ICounter branches = line.getBranchCounter();
+          if (branches.getTotalCount() > 0) {
+            String bid = String.valueOf(file.b.size());
+            Map<String, Object> branch = new LinkedHashMap<>();
+            branch.put("loc", span(nr, 0, nr, endCol));
+            branch.put("type", "cond-expr");
+            List<Object> locations = new ArrayList<>();
+            locations.add(pos(nr, 0));
+            locations.add(pos(nr, endCol));
+            branch.put("locations", locations);
+            branch.put("line", nr);
+            file.branchMap.put(bid, branch);
+
+            List<Integer> hits = new ArrayList<>();
+            hits.add(branches.getCoveredCount());
+            hits.add(branches.getMissedCount());
+            file.b.put(bid, hits);
           }
-          branchCovered += br.getCoveredCount();
-          branchMissed += br.getMissedCount();
+          branchCovered += branches.getCoveredCount();
+          branchMissed += branches.getMissedCount();
         }
       }
 
       for (IMethodCoverage method : cls.getMethods()) {
-        if (method.getInstructionCounter().getCoveredCount() > 0) {
-          f.put(String.valueOf(fId++), 1);
-        }
-      }
+        int startLine = method.getFirstLine() < 1 ? 1 : method.getFirstLine();
+        int endLine = method.getLastLine() < startLine ? startLine : method.getLastLine();
+        int endCol = columnEnd(sourceLines, endLine);
+        String fid = String.valueOf(file.f.size());
 
-      if (s.isEmpty() && f.isEmpty() && b.isEmpty()) {
+        Map<String, Object> fn = new LinkedHashMap<>();
+        fn.put("name", method.getName());
+        fn.put("decl", span(startLine, 0, startLine, Math.min(endCol, 1)));
+        fn.put("loc", span(startLine, 0, endLine, endCol));
+        fn.put("line", startLine);
+        file.fnMap.put(fid, fn);
+        file.f.put(fid, method.getInstructionCounter().getCoveredCount());
+      }
+    }
+
+    Map<String, Object> coverage = new LinkedHashMap<>();
+    for (FileCov file : byPath.values()) {
+      if (file.s.isEmpty() && file.f.isEmpty() && file.b.isEmpty()) {
         continue;
       }
-
-      Map<String, Object> file = new LinkedHashMap<>();
-      if (!s.isEmpty()) {
-        file.put("s", s);
-      }
-      if (!f.isEmpty()) {
-        file.put("f", f);
-      }
-      if (!b.isEmpty()) {
-        file.put("b", b);
-      }
-
-      @SuppressWarnings("unchecked")
-      Map<String, Object> existing = (Map<String, Object>) files.get(path);
-      if (existing == null) {
-        files.put(path, file);
-      } else {
-        mergeIdMap(existing, "s", s);
-        mergeIdMap(existing, "f", f);
-        mergeBranchMap(existing, b);
-      }
+      Map<String, Object> rec = new LinkedHashMap<>();
+      rec.put("path", file.path);
+      rec.put("statementMap", file.statementMap);
+      rec.put("fnMap", file.fnMap);
+      rec.put("branchMap", file.branchMap);
+      rec.put("s", file.s);
+      rec.put("f", file.f);
+      rec.put("b", file.b);
+      coverage.put(file.path, rec);
     }
 
     Map<String, Object> lineSummary = new LinkedHashMap<>();
@@ -132,41 +146,56 @@ public final class JacocoToJson {
     payload.put("test", test);
     payload.put("type", "backend");
     payload.put("summary", summary);
-    payload.put("coverage", files);
+    payload.put("coverage", coverage);
 
     Files.createDirectories(out.getParent());
     Files.writeString(out, Json.stringify(payload) + "\n", StandardCharsets.UTF_8);
   }
 
-  @SuppressWarnings("unchecked")
-  private static void mergeIdMap(Map<String, Object> existing, String key, Map<String, Object> incoming) {
-    if (incoming.isEmpty()) {
-      return;
+  private static List<String> readSource(String path) {
+    try {
+      Path file = Path.of(path);
+      if (Files.exists(file)) {
+        return Files.readAllLines(file, StandardCharsets.UTF_8);
+      }
+    } catch (Exception ignored) {
+      // use empty source; columns stay 0
     }
-    Map<String, Object> target = (Map<String, Object>) existing.get(key);
-    if (target == null) {
-      existing.put(key, new LinkedHashMap<>(incoming));
-      return;
-    }
-    int nextId = target.size();
-    for (Object value : incoming.values()) {
-      target.put(String.valueOf(nextId++), value);
-    }
+    return List.of();
   }
 
-  @SuppressWarnings("unchecked")
-  private static void mergeBranchMap(Map<String, Object> existing, Map<String, Object> incoming) {
-    if (incoming.isEmpty()) {
-      return;
+  private static int columnEnd(List<String> lines, int lineNr) {
+    if (lineNr < 1 || lineNr > lines.size()) {
+      return 0;
     }
-    Map<String, Object> target = (Map<String, Object>) existing.get("b");
-    if (target == null) {
-      existing.put("b", new LinkedHashMap<>(incoming));
-      return;
-    }
-    int nextId = target.size();
-    for (Object value : incoming.values()) {
-      target.put(String.valueOf(nextId++), value);
+    return lines.get(lineNr - 1).length();
+  }
+
+  private static Map<String, Object> pos(int line, int column) {
+    Map<String, Object> point = new LinkedHashMap<>();
+    point.put("line", line);
+    point.put("column", column);
+    return point;
+  }
+
+  private static Map<String, Object> span(int startLine, int startCol, int endLine, int endCol) {
+    Map<String, Object> loc = new LinkedHashMap<>();
+    loc.put("start", pos(startLine, startCol));
+    loc.put("end", pos(endLine, endCol));
+    return loc;
+  }
+
+  private static final class FileCov {
+    final String path;
+    final Map<String, Object> statementMap = new LinkedHashMap<>();
+    final Map<String, Object> fnMap = new LinkedHashMap<>();
+    final Map<String, Object> branchMap = new LinkedHashMap<>();
+    final Map<String, Object> s = new LinkedHashMap<>();
+    final Map<String, Object> f = new LinkedHashMap<>();
+    final Map<String, Object> b = new LinkedHashMap<>();
+
+    FileCov(String path) {
+      this.path = path;
     }
   }
 }

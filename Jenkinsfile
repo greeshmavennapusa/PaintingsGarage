@@ -18,6 +18,7 @@ pipeline {
     COVERAGE_DIR   = 'coverage-per-test'
     TOOLS_DIR      = 'target/coverage-tools'
     JACOCO_DIR     = 'target/jacoco-cli'
+    TESTCONTAINERS_RYUK_DISABLED = 'true'
   }
 
   stages {
@@ -70,7 +71,6 @@ pipeline {
             -cp ${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar \
             ci/coverage/Args.java \
             ci/coverage/Json.java \
-            ci/coverage/WriteFrontendJson.java \
             ci/coverage/JacocoToJson.java
 
           AGENT="${JACOCO_DIR}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar"
@@ -98,6 +98,9 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           sh '''#!/bin/bash
             set -euo pipefail
+            export TESTCONTAINERS_RYUK_DISABLED=true
+            export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
             run_one() {
@@ -105,11 +108,6 @@ pipeline {
               local fqn="$2"
               local out="${COVERAGE_DIR}/${name}"
               mkdir -p "$out"
-
-              java -cp "$CP" WriteFrontendJson \
-                --test "$name" \
-                --source src/test/java \
-                --out "$out/frontend.json"
 
               set +e
               ./mvnw -B test -Dtest="$fqn" -Dskip.installnodenpm -Dskip.yarn
@@ -135,7 +133,7 @@ pipeline {
 
     stage('Archive Coverage Artifacts') {
       steps {
-        archiveArtifacts artifacts: 'coverage-per-test/**/*.json', allowEmptyArchive: true, fingerprint: true
+        archiveArtifacts artifacts: 'coverage-per-test/**/backend.json', allowEmptyArchive: true, fingerprint: true
       }
     }
   }

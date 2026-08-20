@@ -33,15 +33,7 @@ pipeline {
           sed -i 's/\\r$//' mvnw
           chmod +x mvnw
 
-          if [ -z "${JAVA_HOME:-}" ]; then
-            JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
-            export JAVA_HOME
-          fi
-          export PATH="$JAVA_HOME/bin:$PATH"
-
-          echo "JAVA_HOME=$JAVA_HOME"
           java -version
-          javac -version
 
           docker rm -f paintings-sftp >/dev/null 2>&1 || true
           docker run -d --name paintings-sftp \
@@ -57,10 +49,19 @@ pipeline {
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:jar:runtime \
             -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.eclipse.jdt:ecj:3.37.0 \
+            -DoutputDirectory=${JACOCO_DIR}
 
           mkdir -p ${TOOLS_DIR}
-          javac --release 17 -cp "${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar" \
-            ci/coverage/*.java -d ${TOOLS_DIR}
+          java -jar ${JACOCO_DIR}/ecj-3.37.0.jar \
+            -source 17 -target 17 \
+            -d ${TOOLS_DIR} \
+            -cp ${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar \
+            ci/coverage/Args.java \
+            ci/coverage/Json.java \
+            ci/coverage/WriteFrontendJson.java \
+            ci/coverage/JacocoToJson.java
 
           AGENT="${JACOCO_DIR}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar"
           nohup java \
@@ -87,13 +88,6 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           sh '''#!/bin/bash
             set -euo pipefail
-
-            if [ -z "${JAVA_HOME:-}" ]; then
-              JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
-              export JAVA_HOME
-            fi
-            export PATH="$JAVA_HOME/bin:$PATH"
-
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
 
             run_one() {

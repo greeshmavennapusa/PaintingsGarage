@@ -52,3 +52,6 @@ docker-files/images/*
 # Except examples
 !docker-files/images/demo_*.jpg
 !docker-files/images/th_demo_*.jpg
+
+# Jenkins Selenium coverage output
+/coverage-per-test/

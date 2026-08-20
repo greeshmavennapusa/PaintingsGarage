@@ -24,12 +24,16 @@ pipeline {
 
     stage('Build & Run') {
       steps {
-        sh '''
+        sh '''#!/bin/bash
           set -euo pipefail
-          sed -i 's/\r$//' mvnw
+          sed -i 's/\\r$//' mvnw
           chmod +x mvnw
 
-          docker compose up -d sftp
+          if docker compose version >/dev/null 2>&1; then
+            docker compose up -d sftp
+          else
+            docker-compose up -d sftp
+          fi
 
           ./mvnw -B package -DskipTests
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
@@ -66,7 +70,7 @@ pipeline {
         '''
 
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          sh '''
+          sh '''#!/bin/bash
             set -euo pipefail
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
 
@@ -113,10 +117,11 @@ pipeline {
   post {
     always {
       junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
-      sh '''
+      sh '''#!/bin/bash
         set +e
         if [ -f target/app.pid ]; then kill "$(cat target/app.pid)"; fi
-        docker compose down
+        docker compose down 2>/dev/null || docker-compose down 2>/dev/null || true
+        exit 0
       '''
     }
   }

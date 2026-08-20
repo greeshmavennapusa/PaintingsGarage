@@ -1,7 +1,7 @@
 import {createApi, fetchBaseQuery} from '@reduxjs/toolkit/dist/query/react'
 import {setAuthHeader} from '../util/headerBuilder'
 
-export const hostname = 'http://localhost:8080'
+export const hostname = 'http://localhost:8081'
 export const baseUrl = hostname + '/api'
 
 export const baseApi = createApi({

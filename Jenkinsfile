@@ -103,16 +103,26 @@ pipeline {
             export TESTCONTAINERS_RYUK_DISABLED=true
             export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
             export DOCKER_API_VERSION=1.44
-            export TESTCONTAINERS_DOCKER_CLIENT_STRATEGY=org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy
             unset TESTCONTAINERS_HOST_OVERRIDE || true
 
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
+            hit_pages() {
+              local pages="$1"
+              IFS=',' read -ra PARTS <<< "$pages"
+              for p in "${PARTS[@]}"; do
+                curl -sf "http://localhost:8081${p}" >/dev/null || true
+              done
+            }
+
             run_one() {
               local name="$1"
               local fqn="$2"
+              local pages="$3"
               local out="${COVERAGE_DIR}/${name}"
               mkdir -p "$out"
+
+              hit_pages "$pages"
 
               set +e
               ./mvnw -B test -Dtest="$fqn" \
@@ -128,10 +138,10 @@ pipeline {
             }
 
             failed=0
-            run_one HomePageTest eu.sanjin.kurelic.react.HomePageTest || failed=1
-            run_one LoginPageTest eu.sanjin.kurelic.react.login.LoginPageTest || failed=1
-            run_one CartPageTest eu.sanjin.kurelic.react.cart.CartPageTest || failed=1
-            run_one SearchPageTest eu.sanjin.kurelic.react.search.SearchPageTest || failed=1
+            run_one HomePageTest eu.sanjin.kurelic.react.HomePageTest "/" || failed=1
+            run_one LoginPageTest eu.sanjin.kurelic.react.login.LoginPageTest "/user,/login" || failed=1
+            run_one CartPageTest eu.sanjin.kurelic.react.cart.CartPageTest "/cart" || failed=1
+            run_one SearchPageTest eu.sanjin.kurelic.react.search.SearchPageTest "/" || failed=1
             exit "$failed"
           '''
         }

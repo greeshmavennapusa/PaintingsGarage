@@ -6,7 +6,7 @@ import org.testcontainers.containers.BrowserWebDriverContainer;
 
 public class SeleniumTestContainer extends BrowserWebDriverContainer<SeleniumTestContainer> {
 
-  private static final Integer HOST_PORT = 8080;
+  private static final Integer HOST_PORT = 8081;
   private static final String TEST_CONTAINER_URL = String.format("http://host.testcontainers.internal:%d/", HOST_PORT);
 
   private static volatile SeleniumTestContainer container;

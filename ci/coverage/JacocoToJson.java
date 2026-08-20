@@ -42,9 +42,6 @@ public final class JacocoToJson {
     int branchMissed = 0;
 
     for (IClassCoverage cls : builder.getClasses()) {
-      if (cls.getName().startsWith("eu/sanjin/kurelic/paintingsgarage/coverage")) {
-        continue;
-      }
       String source = cls.getSourceFileName();
       if (source == null) {
         continue;
@@ -52,9 +49,11 @@ public final class JacocoToJson {
       String path = "src/main/java/" + cls.getPackageName().replace('.', '/') + "/" + source;
 
       Map<String, Object> s = new LinkedHashMap<>();
-      Map<String, Object> l = new LinkedHashMap<>();
-      Map<String, Object> b = new LinkedHashMap<>();
       Map<String, Object> f = new LinkedHashMap<>();
+      Map<String, Object> b = new LinkedHashMap<>();
+      int sId = 0;
+      int fId = 0;
+      int bId = 0;
 
       if (cls.getFirstLine() != -1) {
         for (int nr = cls.getFirstLine(); nr <= cls.getLastLine(); nr++) {
@@ -64,47 +63,54 @@ public final class JacocoToJson {
           if (coveredIns == 0 && missedIns == 0) {
             continue;
           }
-          String key = String.valueOf(nr);
-          l.put(key, coveredIns);
-          s.put(key, coveredIns > 0 ? 1 : 0);
-
-          ICounter br = line.getBranchCounter();
-          if (br.getTotalCount() > 0) {
-            List<Integer> pair = new ArrayList<>();
-            pair.add(br.getCoveredCount());
-            pair.add(br.getMissedCount());
-            b.put(key, pair);
-          }
           if (coveredIns > 0) {
+            s.put(String.valueOf(sId++), 1);
             lineCovered++;
           } else {
             lineMissed++;
+          }
+
+          ICounter br = line.getBranchCounter();
+          if (br.getCoveredCount() > 0) {
+            List<Integer> pair = new ArrayList<>();
+            pair.add(br.getCoveredCount());
+            pair.add(br.getMissedCount());
+            b.put(String.valueOf(bId++), pair);
           }
           branchCovered += br.getCoveredCount();
           branchMissed += br.getMissedCount();
         }
       }
 
-      int methodIndex = 0;
       for (IMethodCoverage method : cls.getMethods()) {
-        f.put(String.valueOf(methodIndex++), method.getInstructionCounter().getCoveredCount() > 0 ? 1 : 0);
+        if (method.getInstructionCounter().getCoveredCount() > 0) {
+          f.put(String.valueOf(fId++), 1);
+        }
+      }
+
+      if (s.isEmpty() && f.isEmpty() && b.isEmpty()) {
+        continue;
       }
 
       Map<String, Object> file = new LinkedHashMap<>();
-      file.put("s", s);
-      file.put("l", l);
-      file.put("b", b);
-      file.put("f", f);
+      if (!s.isEmpty()) {
+        file.put("s", s);
+      }
+      if (!f.isEmpty()) {
+        file.put("f", f);
+      }
+      if (!b.isEmpty()) {
+        file.put("b", b);
+      }
 
       @SuppressWarnings("unchecked")
       Map<String, Object> existing = (Map<String, Object>) files.get(path);
       if (existing == null) {
         files.put(path, file);
       } else {
-        mergeNumericMap(existing, "s", s);
-        mergeNumericMap(existing, "l", l);
+        mergeIdMap(existing, "s", s);
+        mergeIdMap(existing, "f", f);
         mergeBranchMap(existing, b);
-        mergeNumericMap(existing, "f", f);
       }
     }
 
@@ -133,30 +139,34 @@ public final class JacocoToJson {
   }
 
   @SuppressWarnings("unchecked")
-  private static void mergeNumericMap(Map<String, Object> existing, String key, Map<String, Object> incoming) {
+  private static void mergeIdMap(Map<String, Object> existing, String key, Map<String, Object> incoming) {
+    if (incoming.isEmpty()) {
+      return;
+    }
     Map<String, Object> target = (Map<String, Object>) existing.get(key);
-    for (var e : incoming.entrySet()) {
-      int next = ((Number) e.getValue()).intValue();
-      Object prev = target.get(e.getKey());
-      int old = prev == null ? 0 : ((Number) prev).intValue();
-      target.put(e.getKey(), Math.max(old, next));
+    if (target == null) {
+      existing.put(key, new LinkedHashMap<>(incoming));
+      return;
+    }
+    int nextId = target.size();
+    for (Object value : incoming.values()) {
+      target.put(String.valueOf(nextId++), value);
     }
   }
 
   @SuppressWarnings("unchecked")
   private static void mergeBranchMap(Map<String, Object> existing, Map<String, Object> incoming) {
+    if (incoming.isEmpty()) {
+      return;
+    }
     Map<String, Object> target = (Map<String, Object>) existing.get("b");
-    for (var e : incoming.entrySet()) {
-      List<Integer> next = (List<Integer>) e.getValue();
-      List<Integer> prev = (List<Integer>) target.get(e.getKey());
-      if (prev == null) {
-        target.put(e.getKey(), next);
-      } else {
-        List<Integer> merged = new ArrayList<>();
-        merged.add(Math.max(prev.get(0), next.get(0)));
-        merged.add(Math.max(prev.get(1), next.get(1)));
-        target.put(e.getKey(), merged);
-      }
+    if (target == null) {
+      existing.put("b", new LinkedHashMap<>(incoming));
+      return;
+    }
+    int nextId = target.size();
+    for (Object value : incoming.values()) {
+      target.put(String.valueOf(nextId++), value);
     }
   }
 }

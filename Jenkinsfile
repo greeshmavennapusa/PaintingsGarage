@@ -13,6 +13,7 @@ pipeline {
 
   environment {
     JACOCO_VERSION = '0.8.11'
+    ASM_VERSION    = '9.6'
     APP_JAR        = 'target/PaintingsGarage-0.0.1-SNAPSHOT.jar'
     COVERAGE_DIR   = 'coverage-per-test'
     TOOLS_DIR      = 'target/coverage-tools'
@@ -50,6 +51,15 @@ pipeline {
             -Dartifact=org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:jar:runtime \
             -DoutputDirectory=${JACOCO_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.ow2.asm:asm:${ASM_VERSION} \
+            -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.ow2.asm:asm-tree:${ASM_VERSION} \
+            -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.ow2.asm:asm-commons:${ASM_VERSION} \
+            -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.eclipse.jdt:ecj:3.37.0 \
             -DoutputDirectory=${JACOCO_DIR}
 
@@ -76,7 +86,7 @@ pipeline {
           done
           curl -sf http://localhost:8081/actuator/health
 
-          CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
+          CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
           java -cp "$CP" JacocoToJson \
             --test startup --classes target/classes --reset true \
             --out /tmp/startup-coverage.json
@@ -88,7 +98,7 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           sh '''#!/bin/bash
             set -euo pipefail
-            CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
+            CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
             run_one() {
               local name="$1"

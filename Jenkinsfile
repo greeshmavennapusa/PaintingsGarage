@@ -33,7 +33,15 @@ pipeline {
           sed -i 's/\\r$//' mvnw
           chmod +x mvnw
 
+          if [ -z "${JAVA_HOME:-}" ]; then
+            JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+            export JAVA_HOME
+          fi
+          export PATH="$JAVA_HOME/bin:$PATH"
+
+          echo "JAVA_HOME=$JAVA_HOME"
           java -version
+          javac -version
 
           docker rm -f paintings-sftp >/dev/null 2>&1 || true
           docker run -d --name paintings-sftp \
@@ -79,6 +87,13 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           sh '''#!/bin/bash
             set -euo pipefail
+
+            if [ -z "${JAVA_HOME:-}" ]; then
+              JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+              export JAVA_HOME
+            fi
+            export PATH="$JAVA_HOME/bin:$PATH"
+
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
 
             run_one() {

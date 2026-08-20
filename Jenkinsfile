@@ -19,6 +19,8 @@ pipeline {
     TOOLS_DIR      = 'target/coverage-tools'
     JACOCO_DIR     = 'target/jacoco-cli'
     TESTCONTAINERS_RYUK_DISABLED = 'true'
+    DOCKER_API_VERSION = '1.44'
+    TESTCONTAINERS_DOCKER_CLIENT_STRATEGY = 'org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy'
   }
 
   stages {
@@ -100,6 +102,9 @@ pipeline {
             set -euo pipefail
             export TESTCONTAINERS_RYUK_DISABLED=true
             export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+            export DOCKER_API_VERSION=1.44
+            export TESTCONTAINERS_DOCKER_CLIENT_STRATEGY=org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy
+            unset TESTCONTAINERS_HOST_OVERRIDE || true
 
             CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
@@ -110,7 +115,9 @@ pipeline {
               mkdir -p "$out"
 
               set +e
-              ./mvnw -B test -Dtest="$fqn" -Dskip.installnodenpm -Dskip.yarn
+              ./mvnw -B test -Dtest="$fqn" \
+                -Dskip.installnodenpm -Dskip.yarn \
+                -Dtestcontainers.version=1.21.3
               local rc=$?
               set -e
 

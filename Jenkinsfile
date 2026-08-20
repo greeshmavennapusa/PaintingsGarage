@@ -51,10 +51,10 @@ pipeline {
           echo $! > target/app.pid
 
           for i in $(seq 1 90); do
-            curl -sf http://localhost:8080/actuator/health && break
+            curl -sf http://localhost:8081/actuator/health && break
             sleep 2
           done
-          curl -sf http://localhost:8080/actuator/health
+          curl -sf http://localhost:8081/actuator/health
 
           CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar"
           java -cp "$CP" JacocoToJson \

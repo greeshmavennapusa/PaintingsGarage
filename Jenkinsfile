@@ -1,6 +1,10 @@
 pipeline {
   agent any
 
+  tools {
+    jdk 'jdk-17'
+  }
+
   options {
     timestamps()
     disableConcurrentBuilds()
@@ -28,6 +32,8 @@ pipeline {
           set -euo pipefail
           sed -i 's/\\r$//' mvnw
           chmod +x mvnw
+
+          java -version
 
           docker rm -f paintings-sftp >/dev/null 2>&1 || true
           docker run -d --name paintings-sftp \

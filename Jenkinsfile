@@ -29,11 +29,12 @@ pipeline {
           sed -i 's/\\r$//' mvnw
           chmod +x mvnw
 
-          if docker compose version >/dev/null 2>&1; then
-            docker compose up -d sftp
-          else
-            docker-compose up -d sftp
-          fi
+          docker rm -f paintings-sftp >/dev/null 2>&1 || true
+          docker run -d --name paintings-sftp \
+            -p 2222:22 \
+            -v "$PWD/docker-files/images:/home/user/images" \
+            atmoz/sftp \
+            user:password:1001
 
           ./mvnw -B package -DskipTests
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
@@ -120,7 +121,7 @@ pipeline {
       sh '''#!/bin/bash
         set +e
         if [ -f target/app.pid ]; then kill "$(cat target/app.pid)"; fi
-        docker compose down 2>/dev/null || docker-compose down 2>/dev/null || true
+        docker rm -f paintings-sftp >/dev/null 2>&1
         exit 0
       '''
     }

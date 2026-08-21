@@ -66,7 +66,7 @@ copy_dep() {
 
 mkdir -p "${LIB_DIR}" "${TOOLS_DIR}/hit-runtime-classes" "${TOOLS_DIR}/hit-agent-classes" "${TOOLS_DIR}"
 
-copy_dep "org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:runtime"
+copy_dep "org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:jar:runtime"
 copy_dep "org.jacoco:org.jacoco.core:${JACOCO_VERSION}"
 copy_dep "org.ow2.asm:asm:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-tree:${ASM_VERSION}"

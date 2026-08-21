@@ -96,7 +96,7 @@ java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -cp "${CORE_JAR}" \
   ci/coverage/Args.java \
   ci/coverage/Json.java \
-  ci/coverage/CoverageToJson.java
+  ci/coverage/JacocoToJson.java
 
 nohup java \
   "-javaagent:${JACOCO_AGENT}=output=tcpserver,address=*,port=${JACOCO_PORT},includes=eu.sanjin.kurelic.paintingsgarage.*" \
@@ -111,7 +111,7 @@ for i in $(seq 1 90); do
 done
 curl -sf "${APP_URL}/actuator/health"
 
-java -cp "${CP}" CoverageToJson \
+java -cp "${CP}" JacocoToJson \
   --test startup --classes target/classes \
   --host localhost --hit-port "${HIT_PORT}" --jacoco-port "${JACOCO_PORT}" --reset true \
   --out /tmp/startup-hits.json
@@ -139,7 +139,7 @@ run_one() {
   local rc=$?
   set -e
 
-  java -cp "${CP}" CoverageToJson \
+  java -cp "${CP}" JacocoToJson \
     --test "$name" --classes target/classes \
     --host localhost --hit-port "${HIT_PORT}" --jacoco-port "${JACOCO_PORT}" --reset true \
     --out "$out/backend.json"

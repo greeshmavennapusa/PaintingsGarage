@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-public final class CoverageToJson {
+public final class JacocoToJson {
 
   private static final String SOURCE_ROOT = "src/main/java";
 

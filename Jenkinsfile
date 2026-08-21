@@ -11,12 +11,6 @@ pipeline {
     timeout(time: 60, unit: 'MINUTES')
   }
 
-  environment {
-    TESTCONTAINERS_RYUK_DISABLED = 'true'
-    DOCKER_API_VERSION = '1.44'
-    TESTCONTAINERS_DOCKER_CLIENT_STRATEGY = 'org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy'
-  }
-
   stages {
     stage('Checkout') {
       steps {

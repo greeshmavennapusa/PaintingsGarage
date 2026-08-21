@@ -3,7 +3,6 @@ set -euo pipefail
 
 ASM_VERSION=9.6
 JACOCO_VERSION=0.8.11
-APP_JAR=target/PaintingsGarage-0.0.1-SNAPSHOT.jar
 COVERAGE_DIR=coverage-per-test
 TOOLS_DIR=target/coverage-tools
 LIB_DIR=target/jacoco-cli
@@ -15,9 +14,7 @@ chmod +x mvnw
 
 cleanup() {
   set +e
-  if [ -f target/app.pid ]; then
-    kill "$(cat target/app.pid)" >/dev/null 2>&1
-  fi
+  ./mvnw -B -Pcoverage spring-boot:stop >/dev/null 2>&1
   docker rm -f paintings-sftp >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -37,14 +34,12 @@ copy_dep() {
     -DoutputDirectory="${LIB_DIR}"
 }
 
-copy_dep "org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:runtime"
 copy_dep "org.jacoco:org.jacoco.core:${JACOCO_VERSION}"
 copy_dep "org.ow2.asm:asm:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-tree:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-commons:${ASM_VERSION}"
 copy_dep "org.eclipse.jdt:ecj:3.37.0"
 
-AGENT_JAR=$(ls "${LIB_DIR}"/org.jacoco.agent-*-runtime.jar | head -n 1)
 CORE_JAR=$(ls "${LIB_DIR}"/org.jacoco.core-*.jar | head -n 1)
 CP="${TOOLS_DIR}:${CORE_JAR}:${LIB_DIR}/asm-${ASM_VERSION}.jar:${LIB_DIR}/asm-tree-${ASM_VERSION}.jar:${LIB_DIR}/asm-commons-${ASM_VERSION}.jar"
 
@@ -57,22 +52,13 @@ java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   ci/coverage/Json.java \
   ci/coverage/JacocoToJson.java
 
-nohup java \
-  "-javaagent:${AGENT_JAR}=output=tcpserver,address=*,port=${JACOCO_PORT},includes=eu.sanjin.kurelic.paintingsgarage.*" \
-  -jar "${APP_JAR}" \
-  > target/app.log 2>&1 &
-echo $! > target/app.pid
+./mvnw -B -Pcoverage jacoco:prepare-agent spring-boot:start
 
 for i in $(seq 1 90); do
   curl -sf "${APP_URL}/actuator/health" && break
   sleep 2
 done
 curl -sf "${APP_URL}/actuator/health"
-
-java -cp "${CP}" JacocoToJson \
-  --test startup --classes target/classes \
-  --host localhost --port "${JACOCO_PORT}" --reset true \
-  --out /tmp/startup-coverage.json
 
 rm -rf "${COVERAGE_DIR}"
 mkdir -p "${COVERAGE_DIR}"
@@ -96,8 +82,7 @@ run_one() {
 
   set +e
   ./mvnw -B test -Dtest="$fqn" \
-    -Dskip.installnodenpm -Dskip.yarn \
-    -Dtestcontainers.version=1.21.3
+    -Dskip.installnodenpm -Dskip.yarn
   local rc=$?
   set -e
 

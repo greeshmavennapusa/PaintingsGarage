@@ -303,4 +303,34 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+  <profile>
+    <id>coverage</id>
+    <build>
+      <plugins>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.11</version>
+          <configuration>
+            <output>tcpserver</output>
+            <address>*</address>
+            <port>6300</port>
+            <includes>
+              <include>eu.sanjin.kurelic.paintingsgarage.*</include>
+            </includes>
+            <propertyName>jacoco.agent.arg</propertyName>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <configuration>
+            <jvmArguments>${jacoco.agent.arg}</jvmArguments>
+          </configuration>
+        </plugin>
+      </plugins>
+    </build>
+  </profile>
+</profiles>
 </project>

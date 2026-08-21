@@ -2,19 +2,21 @@
 set -euo pipefail
 
 ASM_VERSION=9.6
-JACOCO_VERSION=0.8.11
 COVERAGE_DIR=coverage-per-test
 TOOLS_DIR=target/coverage-tools
 LIB_DIR=target/jacoco-cli
-JACOCO_PORT=6300
+HIT_PORT=6301
 APP_URL=http://localhost:8081
+APP_JAR=target/PaintingsGarage-0.0.1-SNAPSHOT.jar
 
 sed -i 's/\r$//' mvnw
 chmod +x mvnw
 
 cleanup() {
   set +e
-  ./mvnw -B -Pcoverage spring-boot:stop >/dev/null 2>&1
+  if [ -f target/app.pid ]; then
+    kill "$(cat target/app.pid)" >/dev/null 2>&1
+  fi
   docker rm -f paintings-sftp >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -34,31 +36,49 @@ copy_dep() {
     -DoutputDirectory="${LIB_DIR}"
 }
 
-copy_dep "org.jacoco:org.jacoco.core:${JACOCO_VERSION}"
+mkdir -p "${LIB_DIR}" "${TOOLS_DIR}/hit-runtime-classes" "${TOOLS_DIR}/hit-agent-classes" "${TOOLS_DIR}"
+
 copy_dep "org.ow2.asm:asm:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-tree:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-commons:${ASM_VERSION}"
 copy_dep "org.eclipse.jdt:ecj:3.37.0"
 
-CORE_JAR=$(ls "${LIB_DIR}"/org.jacoco.core-*.jar | head -n 1)
-CP="${TOOLS_DIR}:${CORE_JAR}:${LIB_DIR}/asm-${ASM_VERSION}.jar:${LIB_DIR}/asm-tree-${ASM_VERSION}.jar:${LIB_DIR}/asm-commons-${ASM_VERSION}.jar"
+java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
+  -source 17 -target 17 \
+  -d "${TOOLS_DIR}/hit-runtime-classes" \
+  ci/hit-agent/HitRuntime.java
+jar cf "${LIB_DIR}/hit-runtime.jar" -C "${TOOLS_DIR}/hit-runtime-classes" .
 
-mkdir -p "${TOOLS_DIR}"
+java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
+  -source 17 -target 17 \
+  -d "${TOOLS_DIR}/hit-agent-classes" \
+  -cp "${TOOLS_DIR}/hit-runtime-classes:${LIB_DIR}/asm-${ASM_VERSION}.jar" \
+  ci/hit-agent/HitAgent.java
+jar cfm "${LIB_DIR}/hit-agent.jar" ci/hit-agent/MANIFEST.MF \
+  -C "${TOOLS_DIR}/hit-agent-classes" .
+
 java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -source 17 -target 17 \
   -d "${TOOLS_DIR}" \
-  -cp "${CORE_JAR}" \
   ci/coverage/Args.java \
   ci/coverage/Json.java \
-  ci/coverage/JacocoToJson.java
+  ci/hit-agent/HitToJson.java
 
-./mvnw -B -Pcoverage jacoco:prepare-agent spring-boot:start
+nohup java \
+  "-javaagent:${LIB_DIR}/hit-agent.jar=port=${HIT_PORT}" \
+  -jar "${APP_JAR}" \
+  > target/app.log 2>&1 &
+echo $! > target/app.pid
 
 for i in $(seq 1 90); do
   curl -sf "${APP_URL}/actuator/health" && break
   sleep 2
 done
 curl -sf "${APP_URL}/actuator/health"
+
+java -cp "${TOOLS_DIR}" HitToJson \
+  --test startup --host localhost --port "${HIT_PORT}" --reset true \
+  --out /tmp/startup-hits.json
 
 rm -rf "${COVERAGE_DIR}"
 mkdir -p "${COVERAGE_DIR}"
@@ -86,9 +106,8 @@ run_one() {
   local rc=$?
   set -e
 
-  java -cp "${CP}" JacocoToJson \
-    --test "$name" --classes target/classes \
-    --host localhost --port "${JACOCO_PORT}" --reset true \
+  java -cp "${TOOLS_DIR}" HitToJson \
+    --test "$name" --host localhost --port "${HIT_PORT}" --reset true \
     --out "$out/backend.json"
   return "$rc"
 }

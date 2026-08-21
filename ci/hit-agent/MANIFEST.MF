@@ -1,0 +1,5 @@
+Premain-Class: HitAgent
+Can-Redefine-Classes: true
+Can-Retransform-Classes: true
+Boot-Class-Path: hit-runtime.jar
+Class-Path: asm-9.6.jar asm-tree-9.6.jar asm-commons-9.6.jar

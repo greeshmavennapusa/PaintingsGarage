@@ -25,6 +25,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
+pack_jar() {
+  local out="$1"
+  local classdir="$2"
+  local manifest="${3:-}"
+  python3 - "$out" "$classdir" "$manifest" <<'PY'
+import os, sys, zipfile
+out, classdir, manifest = sys.argv[1], sys.argv[2], sys.argv[3]
+with zipfile.ZipFile(out, "w") as z:
+    if manifest:
+        with open(manifest, "r", encoding="utf-8") as f:
+            data = f.read().replace("\r\n", "\n")
+        if not data.endswith("\n"):
+            data += "\n"
+        z.writestr("META-INF/MANIFEST.MF", data)
+    for root, _, files in os.walk(classdir):
+        for name in files:
+            path = os.path.join(root, name)
+            arc = os.path.relpath(path, classdir).replace("\\", "/")
+            z.write(path, arc)
+PY
+}
+
 docker rm -f paintings-sftp >/dev/null 2>&1 || true
 docker run -d --name paintings-sftp \
   -p 2222:22 \
@@ -51,15 +73,14 @@ java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -source 17 -target 17 \
   -d "${TOOLS_DIR}/hit-runtime-classes" \
   ci/hit-agent/HitRuntime.java
-jar cf "${LIB_DIR}/hit-runtime.jar" -C "${TOOLS_DIR}/hit-runtime-classes" .
+pack_jar "${LIB_DIR}/hit-runtime.jar" "${TOOLS_DIR}/hit-runtime-classes"
 
 java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -source 17 -target 17 \
   -d "${TOOLS_DIR}/hit-agent-classes" \
   -cp "${TOOLS_DIR}/hit-runtime-classes:${LIB_DIR}/asm-${ASM_VERSION}.jar" \
   ci/hit-agent/HitAgent.java
-jar cfm "${LIB_DIR}/hit-agent.jar" ci/hit-agent/MANIFEST.MF \
-  -C "${TOOLS_DIR}/hit-agent-classes" .
+pack_jar "${LIB_DIR}/hit-agent.jar" "${TOOLS_DIR}/hit-agent-classes" "ci/hit-agent/MANIFEST.MF"
 
 java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -source 17 -target 17 \

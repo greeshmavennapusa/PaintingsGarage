@@ -12,12 +12,12 @@ pipeline {
   }
 
   environment {
-    JACOCO_VERSION = '0.8.11'
     ASM_VERSION    = '9.6'
     APP_JAR        = 'target/PaintingsGarage-0.0.1-SNAPSHOT.jar'
     COVERAGE_DIR   = 'coverage-per-test'
     TOOLS_DIR      = 'target/coverage-tools'
-    JACOCO_DIR     = 'target/jacoco-cli'
+    LIB_DIR        = 'target/jacoco-cli'
+    HIT_PORT       = '6301'
     TESTCONTAINERS_RYUK_DISABLED = 'true'
     DOCKER_API_VERSION = '1.44'
     TESTCONTAINERS_DOCKER_CLIENT_STRATEGY = 'org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy'
@@ -47,37 +47,47 @@ pipeline {
             user:password:1001
 
           ./mvnw -B package -DskipTests
-          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
-            -Dartifact=org.jacoco:org.jacoco.core:${JACOCO_VERSION} \
-            -DoutputDirectory=${JACOCO_DIR}
-          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
-            -Dartifact=org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:jar:runtime \
-            -DoutputDirectory=${JACOCO_DIR}
+
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm:${ASM_VERSION} \
-            -DoutputDirectory=${JACOCO_DIR}
+            -DoutputDirectory=${LIB_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm-tree:${ASM_VERSION} \
-            -DoutputDirectory=${JACOCO_DIR}
+            -DoutputDirectory=${LIB_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm-commons:${ASM_VERSION} \
-            -DoutputDirectory=${JACOCO_DIR}
+            -DoutputDirectory=${LIB_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.eclipse.jdt:ecj:3.37.0 \
-            -DoutputDirectory=${JACOCO_DIR}
+            -DoutputDirectory=${LIB_DIR}
 
-          mkdir -p ${TOOLS_DIR}
-          java -jar ${JACOCO_DIR}/ecj-3.37.0.jar \
+          mkdir -p ${TOOLS_DIR}/hit-runtime-classes ${TOOLS_DIR}/hit-agent-classes ${TOOLS_DIR}
+
+          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
+            -source 17 -target 17 \
+            -d ${TOOLS_DIR}/hit-runtime-classes \
+            ci/hit-agent/HitRuntime.java
+
+          jar cf ${LIB_DIR}/hit-runtime.jar -C ${TOOLS_DIR}/hit-runtime-classes .
+
+          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
+            -source 17 -target 17 \
+            -d ${TOOLS_DIR}/hit-agent-classes \
+            -cp ${TOOLS_DIR}/hit-runtime-classes:${LIB_DIR}/asm-${ASM_VERSION}.jar \
+            ci/hit-agent/HitAgent.java
+
+          jar cfm ${LIB_DIR}/hit-agent.jar ci/hit-agent/MANIFEST.MF \
+            -C ${TOOLS_DIR}/hit-agent-classes .
+
+          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
             -source 17 -target 17 \
             -d ${TOOLS_DIR} \
-            -cp ${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar \
             ci/coverage/Args.java \
             ci/coverage/Json.java \
-            ci/coverage/JacocoToJson.java
+            ci/hit-agent/HitToJson.java
 
-          AGENT="${JACOCO_DIR}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar"
           nohup java \
-            "-javaagent:${AGENT}=output=tcpserver,address=*,port=6300,append=false" \
+            "-javaagent:${LIB_DIR}/hit-agent.jar=port=${HIT_PORT}" \
             -jar "${APP_JAR}" \
             > target/app.log 2>&1 &
           echo $! > target/app.pid
@@ -88,9 +98,8 @@ pipeline {
           done
           curl -sf http://localhost:8081/actuator/health
 
-          CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
-          java -cp "$CP" JacocoToJson \
-            --test startup --classes target/classes --reset true \
+          java -cp "${TOOLS_DIR}" HitToJson \
+            --test startup --host localhost --port "${HIT_PORT}" --reset true \
             --out /tmp/startup-coverage.json
 
           rm -rf "${COVERAGE_DIR}"
@@ -104,8 +113,6 @@ pipeline {
             export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
             export DOCKER_API_VERSION=1.44
             unset TESTCONTAINERS_HOST_OVERRIDE || true
-
-            CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
             hit_pages() {
               local pages="$1"
@@ -131,8 +138,8 @@ pipeline {
               local rc=$?
               set -e
 
-              java -cp "$CP" JacocoToJson \
-                --test "$name" --classes target/classes --reset true \
+              java -cp "${TOOLS_DIR}" HitToJson \
+                --test "$name" --host localhost --port "${HIT_PORT}" --reset true \
                 --out "$out/backend.json"
               return "$rc"
             }

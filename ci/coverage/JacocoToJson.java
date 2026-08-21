@@ -39,10 +39,6 @@ public final class JacocoToJson {
 
     Map<String, List<String>> sourceCache = new LinkedHashMap<>();
     Map<String, FileCov> byPath = new LinkedHashMap<>();
-    int lineCovered = 0;
-    int lineMissed = 0;
-    int branchCovered = 0;
-    int branchMissed = 0;
 
     for (IClassCoverage cls : builder.getClasses()) {
       String sourceFile = cls.getSourceFileName();
@@ -67,11 +63,6 @@ public final class JacocoToJson {
           String sid = String.valueOf(file.s.size());
           file.statementMap.put(sid, span(nr, 0, nr, endCol));
           file.s.put(sid, coveredIns);
-          if (coveredIns > 0) {
-            lineCovered++;
-          } else {
-            lineMissed++;
-          }
 
           ICounter branches = line.getBranchCounter();
           if (branches.getTotalCount() > 0) {
@@ -91,8 +82,6 @@ public final class JacocoToJson {
             hits.add(branches.getMissedCount());
             file.b.put(bid, hits);
           }
-          branchCovered += branches.getCoveredCount();
-          branchMissed += branches.getMissedCount();
         }
       }
 
@@ -112,11 +101,17 @@ public final class JacocoToJson {
       }
     }
 
+    int lineCovered = 0;
+    int lineMissed = 0;
+    int branchCovered = 0;
+    int branchMissed = 0;
+
     Map<String, Object> coverage = new LinkedHashMap<>();
     for (FileCov file : byPath.values()) {
-      if (file.s.isEmpty() && file.f.isEmpty() && file.b.isEmpty()) {
+      if (!file.wasHit()) {
         continue;
       }
+
       Map<String, Object> rec = new LinkedHashMap<>();
       rec.put("path", file.path);
       rec.put("statementMap", file.statementMap);
@@ -126,6 +121,20 @@ public final class JacocoToJson {
       rec.put("f", file.f);
       rec.put("b", file.b);
       coverage.put(file.path, rec);
+
+      for (Object v : file.s.values()) {
+        if (((Number) v).intValue() > 0) {
+          lineCovered++;
+        } else {
+          lineMissed++;
+        }
+      }
+      for (Object v : file.b.values()) {
+        @SuppressWarnings("unchecked")
+        List<Integer> hits = (List<Integer>) v;
+        branchCovered += hits.get(0);
+        branchMissed += hits.get(1);
+      }
     }
 
     Map<String, Object> lineSummary = new LinkedHashMap<>();
@@ -196,6 +205,15 @@ public final class JacocoToJson {
 
     FileCov(String path) {
       this.path = path;
+    }
+
+    boolean wasHit() {
+      for (Object v : s.values()) {
+        if (v instanceof Number && ((Number) v).intValue() > 0) {
+          return true;
+        }
+      }
+      return false;
     }
   }
 }

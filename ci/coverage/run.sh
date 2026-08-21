@@ -10,7 +10,11 @@ APP_URL=http://localhost:8081
 APP_JAR=target/PaintingsGarage-0.0.1-SNAPSHOT.jar
 
 sed -i 's/\r$//' mvnw
+sed -i 's/\r$//' ci/hit-agent/MANIFEST.MF
 chmod +x mvnw
+
+rm -rf "${COVERAGE_DIR}"
+mkdir -p "${COVERAGE_DIR}"
 
 cleanup() {
   set +e
@@ -79,9 +83,6 @@ curl -sf "${APP_URL}/actuator/health"
 java -cp "${TOOLS_DIR}" HitToJson \
   --test startup --host localhost --port "${HIT_PORT}" --reset true \
   --out /tmp/startup-hits.json
-
-rm -rf "${COVERAGE_DIR}"
-mkdir -p "${COVERAGE_DIR}"
 
 hit_pages() {
   local pages="$1"

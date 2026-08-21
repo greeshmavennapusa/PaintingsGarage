@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ASM_VERSION=9.6
+JACOCO_VERSION=0.8.11
 COVERAGE_DIR=coverage-per-test
 TOOLS_DIR=target/coverage-tools
 LIB_DIR=target/jacoco-cli
 HIT_PORT=6301
+JACOCO_PORT=6300
 APP_URL=http://localhost:8081
 APP_JAR=target/PaintingsGarage-0.0.1-SNAPSHOT.jar
 
@@ -64,6 +66,8 @@ copy_dep() {
 
 mkdir -p "${LIB_DIR}" "${TOOLS_DIR}/hit-runtime-classes" "${TOOLS_DIR}/hit-agent-classes" "${TOOLS_DIR}"
 
+copy_dep "org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:runtime"
+copy_dep "org.jacoco:org.jacoco.core:${JACOCO_VERSION}"
 copy_dep "org.ow2.asm:asm:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-tree:${ASM_VERSION}"
 copy_dep "org.ow2.asm:asm-commons:${ASM_VERSION}"
@@ -82,14 +86,20 @@ java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   ci/hit-agent/HitAgent.java
 pack_jar "${LIB_DIR}/hit-agent.jar" "${TOOLS_DIR}/hit-agent-classes" "ci/hit-agent/MANIFEST.MF"
 
+CORE_JAR=$(ls "${LIB_DIR}"/org.jacoco.core-*.jar | head -n 1)
+JACOCO_AGENT=$(ls "${LIB_DIR}"/org.jacoco.agent-*-runtime.jar | head -n 1)
+CP="${TOOLS_DIR}:${CORE_JAR}:${LIB_DIR}/asm-${ASM_VERSION}.jar:${LIB_DIR}/asm-tree-${ASM_VERSION}.jar:${LIB_DIR}/asm-commons-${ASM_VERSION}.jar"
+
 java -jar "${LIB_DIR}/ecj-3.37.0.jar" \
   -source 17 -target 17 \
   -d "${TOOLS_DIR}" \
+  -cp "${CORE_JAR}" \
   ci/coverage/Args.java \
   ci/coverage/Json.java \
-  ci/hit-agent/HitToJson.java
+  ci/coverage/CoverageToJson.java
 
 nohup java \
+  "-javaagent:${JACOCO_AGENT}=output=tcpserver,address=*,port=${JACOCO_PORT},includes=eu.sanjin.kurelic.paintingsgarage.*" \
   "-javaagent:${LIB_DIR}/hit-agent.jar=port=${HIT_PORT}" \
   -jar "${APP_JAR}" \
   > target/app.log 2>&1 &
@@ -101,8 +111,9 @@ for i in $(seq 1 90); do
 done
 curl -sf "${APP_URL}/actuator/health"
 
-java -cp "${TOOLS_DIR}" HitToJson \
-  --test startup --host localhost --port "${HIT_PORT}" --reset true \
+java -cp "${CP}" CoverageToJson \
+  --test startup --classes target/classes \
+  --host localhost --hit-port "${HIT_PORT}" --jacoco-port "${JACOCO_PORT}" --reset true \
   --out /tmp/startup-hits.json
 
 hit_pages() {
@@ -128,8 +139,9 @@ run_one() {
   local rc=$?
   set -e
 
-  java -cp "${TOOLS_DIR}" HitToJson \
-    --test "$name" --host localhost --port "${HIT_PORT}" --reset true \
+  java -cp "${CP}" CoverageToJson \
+    --test "$name" --classes target/classes \
+    --host localhost --hit-port "${HIT_PORT}" --jacoco-port "${JACOCO_PORT}" --reset true \
     --out "$out/backend.json"
   return "$rc"
 }

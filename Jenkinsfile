@@ -68,16 +68,11 @@ pipeline {
             -d ${TOOLS_DIR}/hit-runtime-classes \
             ci/hit-agent/HitRuntime.java
 
-          jar cf ${LIB_DIR}/hit-runtime.jar -C ${TOOLS_DIR}/hit-runtime-classes .
-
           java -jar ${LIB_DIR}/ecj-3.37.0.jar \
             -source 17 -target 17 \
             -d ${TOOLS_DIR}/hit-agent-classes \
             -cp ${TOOLS_DIR}/hit-runtime-classes:${LIB_DIR}/asm-${ASM_VERSION}.jar \
             ci/hit-agent/HitAgent.java
-
-          jar cfm ${LIB_DIR}/hit-agent.jar ci/hit-agent/MANIFEST.MF \
-            -C ${TOOLS_DIR}/hit-agent-classes .
 
           java -jar ${LIB_DIR}/ecj-3.37.0.jar \
             -source 17 -target 17 \
@@ -85,6 +80,29 @@ pipeline {
             ci/coverage/Args.java \
             ci/coverage/Json.java \
             ci/hit-agent/HitToJson.java
+
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          lib = Path("target/jacoco-cli")
+
+          def pack(src, dest, manifest=None):
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+                  if manifest is not None:
+                      text = Path(manifest).read_text(encoding="utf-8").replace("\\r\\n", "\\n").replace("\\r", "\\n")
+                      if not text.endswith("\\n"):
+                          text += "\\n"
+                      zf.writestr("META-INF/MANIFEST.MF", text.encode("utf-8"))
+                  root = Path(src)
+                  for path in root.rglob("*"):
+                      if path.is_file():
+                          zf.write(path, path.relative_to(root).as_posix())
+
+          pack("target/coverage-tools/hit-runtime-classes", lib / "hit-runtime.jar")
+          pack("target/coverage-tools/hit-agent-classes", lib / "hit-agent.jar", "ci/hit-agent/MANIFEST.MF")
+          PY
 
           nohup java \
             "-javaagent:${LIB_DIR}/hit-agent.jar=port=${HIT_PORT}" \

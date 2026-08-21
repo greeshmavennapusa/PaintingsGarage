@@ -12,12 +12,12 @@ pipeline {
   }
 
   environment {
+    JACOCO_VERSION = '0.8.11'
     ASM_VERSION    = '9.6'
     APP_JAR        = 'target/PaintingsGarage-0.0.1-SNAPSHOT.jar'
     COVERAGE_DIR   = 'coverage-per-test'
     TOOLS_DIR      = 'target/coverage-tools'
-    LIB_DIR        = 'target/jacoco-cli'
-    HIT_PORT       = '6301'
+    JACOCO_DIR     = 'target/jacoco-cli'
     TESTCONTAINERS_RYUK_DISABLED = 'true'
     DOCKER_API_VERSION = '1.44'
     TESTCONTAINERS_DOCKER_CLIENT_STRATEGY = 'org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy'
@@ -49,64 +49,36 @@ pipeline {
           ./mvnw -B package -DskipTests
 
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.jacoco:org.jacoco.core:${JACOCO_VERSION} \
+            -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
+            -Dartifact=org.jacoco:org.jacoco.agent:${JACOCO_VERSION}:jar:runtime \
+            -DoutputDirectory=${JACOCO_DIR}
+          ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm:${ASM_VERSION} \
-            -DoutputDirectory=${LIB_DIR}
+            -DoutputDirectory=${JACOCO_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm-tree:${ASM_VERSION} \
-            -DoutputDirectory=${LIB_DIR}
+            -DoutputDirectory=${JACOCO_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.ow2.asm:asm-commons:${ASM_VERSION} \
-            -DoutputDirectory=${LIB_DIR}
+            -DoutputDirectory=${JACOCO_DIR}
           ./mvnw -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:copy \
             -Dartifact=org.eclipse.jdt:ecj:3.37.0 \
-            -DoutputDirectory=${LIB_DIR}
+            -DoutputDirectory=${JACOCO_DIR}
 
-          mkdir -p ${TOOLS_DIR}/hit-runtime-classes ${TOOLS_DIR}/hit-agent-classes ${TOOLS_DIR}
-
-          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
-            -source 17 -target 17 \
-            -d ${TOOLS_DIR}/hit-runtime-classes \
-            ci/hit-agent/HitRuntime.java
-
-          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
-            -source 17 -target 17 \
-            -d ${TOOLS_DIR}/hit-agent-classes \
-            -cp ${TOOLS_DIR}/hit-runtime-classes:${LIB_DIR}/asm-${ASM_VERSION}.jar \
-            ci/hit-agent/HitAgent.java
-
-          java -jar ${LIB_DIR}/ecj-3.37.0.jar \
+          mkdir -p ${TOOLS_DIR}
+          java -jar ${JACOCO_DIR}/ecj-3.37.0.jar \
             -source 17 -target 17 \
             -d ${TOOLS_DIR} \
+            -cp ${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar \
             ci/coverage/Args.java \
             ci/coverage/Json.java \
-            ci/hit-agent/HitToJson.java
+            ci/coverage/JacocoToJson.java
 
-          python3 - <<'PY'
-import zipfile
-from pathlib import Path
-
-lib = Path("target/jacoco-cli")
-
-def pack(src, dest, manifest=None):
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
-        if manifest is not None:
-            text = Path(manifest).read_text(encoding="utf-8")
-            text = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
-            if not text.endswith("\\n"):
-                text += "\\n"
-            zf.writestr("META-INF/MANIFEST.MF", text.encode("utf-8"))
-        root = Path(src)
-        for path in root.rglob("*"):
-            if path.is_file():
-                zf.write(path, path.relative_to(root).as_posix())
-
-pack("target/coverage-tools/hit-runtime-classes", lib / "hit-runtime.jar")
-pack("target/coverage-tools/hit-agent-classes", lib / "hit-agent.jar", "ci/hit-agent/MANIFEST.MF")
-PY
-
+          AGENT="${JACOCO_DIR}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar"
           nohup java \
-            "-javaagent:${LIB_DIR}/hit-agent.jar=port=${HIT_PORT}" \
+            "-javaagent:${AGENT}=output=tcpserver,address=*,port=6300,append=false" \
             -jar "${APP_JAR}" \
             > target/app.log 2>&1 &
           echo $! > target/app.pid
@@ -117,8 +89,9 @@ PY
           done
           curl -sf http://localhost:8081/actuator/health
 
-          java -cp "${TOOLS_DIR}" HitToJson \
-            --test startup --host localhost --port "${HIT_PORT}" --reset true \
+          CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
+          java -cp "$CP" JacocoToJson \
+            --test startup --classes target/classes --reset true \
             --out /tmp/startup-coverage.json
 
           rm -rf "${COVERAGE_DIR}"
@@ -132,6 +105,8 @@ PY
             export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
             export DOCKER_API_VERSION=1.44
             unset TESTCONTAINERS_HOST_OVERRIDE || true
+
+            CP="${TOOLS_DIR}:${JACOCO_DIR}/org.jacoco.core-${JACOCO_VERSION}.jar:${JACOCO_DIR}/asm-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-tree-${ASM_VERSION}.jar:${JACOCO_DIR}/asm-commons-${ASM_VERSION}.jar"
 
             hit_pages() {
               local pages="$1"
@@ -157,8 +132,8 @@ PY
               local rc=$?
               set -e
 
-              java -cp "${TOOLS_DIR}" HitToJson \
-                --test "$name" --host localhost --port "${HIT_PORT}" --reset true \
+              java -cp "$CP" JacocoToJson \
+                --test "$name" --classes target/classes --reset true \
                 --out "$out/backend.json"
               return "$rc"
             }
